@@ -1,0 +1,53 @@
+name: Validate Merge Strategy
+
+on:
+  workflow_call:
+    inputs:
+      source_branch:
+        required: true
+        type: string
+      target_branch:
+        required: true
+        type: string
+      merge_method:
+        required: true
+        type: string
+
+jobs:
+  validate_merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display inputs
+        run: |
+          echo "Source branch: ${{ inputs.source_branch }}"
+          echo "Target branch: ${{ inputs.target_branch }}"
+          echo "Merge method: ${{ inputs.merge_method }}"
+
+      - name: Validate merge strategy
+        run: |
+          SOURCE="${{ inputs.source_branch }}"
+          TARGET="${{ inputs.target_branch }}"
+          METHOD="${{ inputs.merge_method }}"
+
+          echo "Validating PR merge strategy..."
+          
+          # Allow 'merge' only from main -> develop
+          if [[ "$SOURCE" == "main" && "$TARGET" == "develop" && "$METHOD" == "merge" ]]; then
+            echo "✅ Merge allowed for main → develop."
+            exit 0
+          fi
+
+          # Require squash for feature → develop
+          if [[ "$SOURCE" == feature/* && "$TARGET" == "develop" ]]; then
+            if [[ "$METHOD" != "squash" ]]; then
+              echo "❌ Invalid merge strategy: $METHOD. Only 'squash' is allowed for feature → develop."
+              exit 1
+            fi
+            echo "✅ Valid merge: squash from feature → develop."
+            exit 0
+          fi
+
+          # Default: allow other merges (e.g., hotfixes or maintenance)
+          echo "ℹ️ Non-feature branch or non-develop target. No restriction applied."
+          exit 0
+
