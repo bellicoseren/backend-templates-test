@@ -31,46 +31,46 @@ jobs:
           echo "Target: ${{ inputs.target_branch }}"
           echo "Repo: ${{ inputs.repo_full_name }}"
 
-      - name: Fetch PR merge method
+      - name: Fetch PR merge state
         id: get_method
         run: |
-          echo "Fetching PR merge method..."
+          echo "Fetching PR state..."
           RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/${{ inputs.repo_full_name }}/pulls/${{ inputs.pr_number }} )
 
-          MERGE_METHOD=$(echo "$RESPONSE" | jq -r '.mergeable_state')
-          # fallback por si GitHub aún no ha calculado el mergeable_state
-          if [[ "$MERGE_METHOD" == "null" || -z "$MERGE_METHOD" ]]; then
-            MERGE_METHOD="unknown"
+          MERGEABLE_STATE=$(echo "$RESPONSE" | jq -r '.mergeable_state')
+          if [[ "$MERGEABLE_STATE" == "null" || -z "$MERGEABLE_STATE" ]]; then
+            MERGEABLE_STATE="unknown"
           fi
 
-          echo "merge_method=$MERGE_METHOD" >> $GITHUB_OUTPUT
-          echo "Detected merge method: $MERGE_METHOD"
+          echo "merge_state=$MERGEABLE_STATE" >> $GITHUB_OUTPUT
+          echo "Detected merge state: $MERGEABLE_STATE"
 
       - name: Validate merge rules
         id: validate
         run: |
           SRC="${{ inputs.source_branch }}"
           TGT="${{ inputs.target_branch }}"
-          METHOD="${{ steps.get_method.outputs.merge_method }}"
+          STATE="${{ steps.get_method.outputs.merge_state }}"
 
-          echo "Validating PR merge strategy..."
-          echo "Source=$SRC  Target=$TGT  Method=$METHOD"
+          echo "Validating PR..."
+          echo "Source=$SRC Target=$TGT MergeableState=$STATE"
 
-          # Rules matrix
-          if [[ "$SRC" == feature/* && "$TGT" == "develop" ]]; then
-            if [[ "$METHOD" != "squash" ]]; then
-              echo "❌ Invalid merge strategy: $METHOD. Only 'squash' allowed for feature → develop."
-              echo "valid=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            echo "✅ Valid merge: squash from feature → develop."
+          # Allow 'merge' only from main -> develop
+          if [[ "$SRC" == "main" && "$TGT" == "develop" ]]; then
+            echo "✅ Merge allowed from main → develop."
             echo "valid=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          if [[ "$SRC" == "main" && "$TGT" == "develop" && "$METHOD" == "merge" ]]; then
-            echo "✅ Merge allowed for main → develop."
+          # Require squash for feature → develop
+          if [[ "$SRC" == feature/* && "$TGT" == "develop" ]]; then
+            if [[ "$STATE" != "clean" ]]; then
+              echo "❌ Invalid merge strategy/state: $STATE. Only squash allowed for feature → develop."
+              echo "valid=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "✅ Valid merge (squash) from feature → develop."
             echo "valid=true" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -81,9 +81,9 @@ jobs:
       - name: Comment on PR if invalid
         if: steps.validate.outputs.valid == 'false'
         run: |
-          MSG="❌ Invalid merge method detected.
+          MSG="❌ Invalid merge detected.
           Only **Squash and Merge** is allowed when merging from feature → develop."
-          
+
           curl -s -H "Authorization: token $GITHUB_TOKEN" \
             -X POST \
             -d "{\"body\": \"$MSG\"}" \
